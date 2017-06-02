@@ -1,0 +1,161 @@
+#!/usr/bin/php
+<?php
+
+class MyDbExplorer {
+
+  private $schema;
+  private $tableName;
+  private $db;
+  private $tables;
+
+  public function __construct($argv) {
+    $this->initConnection();
+    $this->parseArgs($argv);
+    $this->findTables();
+  }
+
+  public function parseArgs($argv) {
+    if (empty($argv[1])) {
+      exit("Partial table name required.\n");
+    } else {
+      $this->tableName = $argv[1];
+    }
+  }
+
+  public function initConnection() {
+    $host = "mysql.localhost.gestorfox.com.br";
+    $schema = "gestorfox_dev_snapshot";
+    $this->schema = $schema;
+    $port = "3306";
+    $user = "root";
+    $password = "root";
+    $charset = "utf8";
+    $this->schema = $schema;
+    $db = new PDO("mysql:host={$host};dbname={$schema};port={$port}", $user, $password, array(PDO::MYSQL_ATTR_INIT_COMMAND => 'SET NAMES ' . $charset));
+    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $this->db = $db;
+  }
+
+  public function findTables() {
+    $tableName = $this->tableName;
+    $db = $this->db;
+    $q = $db->prepare("SHOW TABLES FROM {$this->schema} WHERE Tables_in_{$this->schema} REGEXP :tableName");
+    $q->execute(array(':tableName' => $tableName));
+    $results = $q->fetchAll();
+    $tables = array();
+    if (empty($results)) {
+      echo "No tables found with name {$tableName}.\n";
+    }
+    foreach ($results as $row) {
+      $tables[] = $row[0];
+    }
+    $this->tables = $tables;
+    foreach ($tables as $table) {
+      $this->processTable($table);
+    }
+  }
+
+  public function processTable($table) {
+    $db = $this->db;
+    echo "+ $table\n";
+    $results = $db->query("DESC `$table`");
+    foreach ($results as $row) {
+      $row['table'] = $table;
+      $col = $this->processColumn($row);
+      $showCols = array();
+      foreach ($col as $key => $val) {
+        if (!empty($val)) {
+          $showCols[] = $val;
+        }
+      }
+      if (!empty($col)) {
+        echo '  --  ' . implode(' | ', $showCols) . "\n";
+      }
+    }
+    echo "\n";
+  }
+
+  public function processColumn($row) {
+    $col = array();
+    if ($row['Null'] === 'YES') {
+      $nullable = '';
+    } else {
+      $nullable = 'NOT NULL';
+    }
+    $col = array(
+      'name' => $row['Field'],
+      'type' => strtoupper($row['Type']),
+      'nullable' => $nullable,
+      'key' => $row['Key'],
+      'default' => $row['Default'],
+      'extra' => strtoupper($row['Extra']),
+      'fk' => $this->getForeignKeyDescription($row['table'], $row['Field']),
+    );
+    if (!empty($col['default'])) {
+      $col['default'] = 'DEFAULT ' . $col['default'];
+    }
+
+    $colMarkers = '';
+
+    if (($col['key'] === 'PRI' or $col['key'] === 'UNI') and $this->hasIncomingForeignKey($row['table'], $row['Field'])) {
+      $colMarkers .= '>';
+    }
+
+    if (strpos($col['key'], 'PRI') !== false) {
+      unset($col['key']);
+      $colMarkers .= '#';
+    }
+    if (!empty($col['fk'])) {
+      unset($col['key']);
+      $colMarkers .= '*';
+    }
+    if (!empty($col['key'])) {
+      /* Marker for index, except primary keys */
+      $colMarkers .= '^';
+    }
+
+    if (!empty($col['nullable']) and $col['nullable'] === 'NOT NULL') {
+      unset($col['nullable']);
+      $colMarkers .= '!';
+    }
+    $colMarkers = str_pad($colMarkers, 5, ' ', STR_PAD_LEFT) . ' ';
+    $col['name'] = $colMarkers . $col['name'];
+    return $col;
+  }
+
+  public function getForeignKeyDescription($table, $field) {
+    $results = $this->db->query("
+      SELECT * FROM information_schema.KEY_COLUMN_USAGE
+      WHERE
+        TABLE_SCHEMA = '{$this->schema}'
+        AND TABLE_NAME = '$table' 
+        AND COLUMN_NAME = '$field'
+        AND REFERENCED_COLUMN_NAME IS NOT NULL
+    ");
+    $fkString = '';
+    foreach ($results as $row) {
+      $fkString = "FK({$row['REFERENCED_TABLE_NAME']}.{$row['REFERENCED_COLUMN_NAME']})";
+    }
+    return $fkString;
+  }
+
+  public function hasIncomingForeignKey($table, $field) {
+    $statement = $this->db->query("
+      SELECT COUNT(*) AS TOTAL FROM information_schema.KEY_COLUMN_USAGE
+      WHERE
+        TABLE_SCHEMA = '{$this->schema}'
+        AND REFERENCED_TABLE_NAME = '$table'
+        AND REFERENCED_COLUMN_NAME = '$field'
+    ");
+    $results = $statement->fetchAll();
+    if (!empty($results[0]['TOTAL'])) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+}
+
+$myDbExplorer = new MyDbExplorer($argv);
+?> 
