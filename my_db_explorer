@@ -21,6 +21,11 @@ class MyDbExplorer {
     } else {
       $this->tableName = $argv[1];
     }
+    if (!empty($argv[2]) and ($argv[2] === '--constraints' or $argv[2] === '-c')) {
+      $this->showConstraints = true;
+    } else {
+      $this->showConstraints = false;
+    }
   }
 
   private function loadConfig() {
@@ -148,7 +153,11 @@ class MyDbExplorer {
     ");
     $fkString = '';
     foreach ($results as $row) {
-      $fkString = "FK({$row['REFERENCED_TABLE_NAME']}.{$row['REFERENCED_COLUMN_NAME']})";
+      if ($this->showConstraints) {
+        $fkString = "FK({$row['REFERENCED_TABLE_NAME']}.{$row['REFERENCED_COLUMN_NAME']} => `{$row['CONSTRAINT_NAME']}`)";
+      } else {
+        $fkString = "FK({$row['REFERENCED_TABLE_NAME']}.{$row['REFERENCED_COLUMN_NAME']})";
+      }
     }
     return $fkString;
   }
