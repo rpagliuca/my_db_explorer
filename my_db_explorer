@@ -9,7 +9,8 @@ class MyDbExplorer {
   private $tables;
 
   public function __construct($argv) {
-    $this->initConnection();
+    $config = $this->loadConfig();
+    $this->initConnection($config);
     $this->parseArgs($argv);
     $this->findTables();
   }
@@ -22,16 +23,29 @@ class MyDbExplorer {
     }
   }
 
-  public function initConnection() {
-    $host = "mysql.localhost.gestorfox.com.br";
-    $schema = "gestorfox_dev_snapshot";
-    $this->schema = $schema;
-    $port = "3306";
-    $user = "root";
-    $password = "root";
-    $charset = "utf8";
-    $this->schema = $schema;
-    $db = new PDO("mysql:host={$host};dbname={$schema};port={$port}", $user, $password, array(PDO::MYSQL_ATTR_INIT_COMMAND => 'SET NAMES ' . $charset));
+  private function loadConfig() {
+    $path = getenv('HOME') . DIRECTORY_SEPARATOR . '.my_db_explorer.json';
+    if (file_exists($path)) {;
+      $contents = file_get_contents($path);
+      $config = json_decode($contents);
+      $allowedParams = ['host', 'schema', 'port', 'user', 'password', 'charset'];
+      foreach ($allowedParams as $allowedParam) {
+        if (!isset($config->$allowedParam)) {
+          echo "Config param '$allowedParam' not found in ~/.my_db_explorer.json.\n";
+          exit(1);
+        }
+      }
+    } else {
+      echo "Config file ~/.my_db_explorer.json not found.\n";
+      exit(1);
+    }
+    return $config;
+  }
+
+  public function initConnection($params) {
+    $params = (array) $params;
+    $this->schema = $params['schema'];
+    $db = new PDO("mysql:host={$params['host']};dbname={$params['schema']};port={$params['port']}", $params['user'], $params['password'], array(PDO::MYSQL_ATTR_INIT_COMMAND => 'SET NAMES ' . $params['charset']));
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $this->db = $db;
   }
